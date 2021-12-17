@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voronoi 4.0</title>
+    <style>
+        body {
+          margin: 0;
+          overflow: hidden;
+        }
+        .toolbar{
+          list-style-type: none;
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
+          background-color: #333333;
+        }
+        .toolbar li {
+          display: inline;
+          float: left;
+        }
+        .toolbar .tip{
+          padding: 10px;
+        }
+        .toolbar .btn{
+          padding: 9px;
+        }
+        .toolbar .tip div{
+          color: white;
+        }
+      </style>
+  </head>
+  <body>
+    <ul class="toolbar">
+      <li class = "btn">
+        <button class="create100Button">+100</button>
+      </li>
+      <li class = "btn" style="display: none">
+        <button class="create1000Button">+1000</button>
+      </li>
+      <li class = "btn" style="display: none">
+        <button class="create10000Button">+10000</button>
+      </li>
+      <li class = "btn">
+        <button class="performanceTestButton">Performance Test</button>
+      </li>
+      <li class = "btn">
+        <button class="delaunayOnButton">Delaunay On</button>
+      </li>
+      <li class = "btn">
+        <button class="nearestOffButton">Nearest Off</button>
+      </li>
+      <li class = "btn">
+        <button class="clearAllButton">Clear All</button>
+      </li>
+      <li class="tip">
+        <div class="numPoints">points: 0</div>
+      </li>
+    </ul>
+    <canvas class="myCanvas">
+      <p>Your browser does not support "canvas", please open this page with a browser that supports "canvas".</p>
+      <p>您的浏览器不支持canvas，请使用支持canvas的浏览器打开此页面。</p>
+      <p>Ваш браузер не поддерживает «холст», откройте эту страницу в браузере, который поддерживает «холст».</p>
+      <p>Votre navigateur ne prend pas en charge "canvas", veuillez ouvrir cette page avec un navigateur prenant en charge "canvas".</p>
+      <p>お使いのブラウザは「canvas」に対応していません。「canvas」をサポートするブラウザでこのページを開いてください。</p>
+      <p>귀하의 브라우저는 "canvas"를 지원하지 않습니다. "canvas"를 지원하는 브라우저에서 이 페이지를 여십시오.</p>
+      <p>Ihr Browser unterstützt "Canvas" nicht, bitte öffnen Sie diese Seite mit einem Browser, der "Canvas" unterstützt.</p>
+    </canvas>
+    <script>
+        const toolBar = document.querySelector('.toolbar');  // 工具栏
+        const create100Button = document.querySelector('.create100Button');  // 生成100个随机点按钮
+        const create1000Button = document.querySelector('.create1000Button');  // 生成1000个随机点按钮
+        const create10000Button = document.querySelector('.create10000Button');  // 生成10000个随机点按钮
+        const performanceTestButton = document.querySelector('.performanceTestButton');  // 性能测试按钮
+        const nearestOffButton = document.querySelector('.nearestOffButton');  // 开启最近点显示按钮
+        const clearAllBtn = document.querySelector('.clearAllButton');  // 清空画布按钮
+        const delaunayOnBtn = document.querySelector('.delaunayOnButton');  // 生成Delaunay三角形按钮
+        const canvas = document.querySelector('.myCanvas');  // 画布
+        const numPoints = document.querySelector('.numPoints');  // 当前点的数量
+        let width = canvas.width = window.innerWidth;
+        let height = canvas.height = window.innerHeight;
+        const ctx = canvas.getContext('2d');
+
+        // 门限值
+        const optimizationOnThreshold = 10000; // 当点总数小于此值时不开启优化
+        const changeAlgorithmThreshold = 0;  // 构建Delaunay三角形时，绘制点数超过此值时更换算法
+        let threshold;  // 真实门限，当点总数超过optimizationOnThreshold时，此值为changeAlgorithmThreshold，否则为Infinity
+
+        // 点
+        class point {
+          constructor(x, y) {
+            this.x = x;
+            this.y = y;
+            let r = Math.ceil(Math.random()*255);
+            let g = Math.ceil(Math.random()*255);
+            let b = Math.ceil(Math.random()*255);
+            this.color = 'rgb(' + r + ',' + g + ',' + b + ')';  // 点的颜色
+            this.color3 = 'rgb(' + (255-r) + ',' + (255-g) + ',' + (255-b) + ')';  // 点的Voronoi图的颜色
+            this.size = 5;
+            this.from = undefined; // 点属于哪个三角形
+            this.voronoiPoints = [];
+            this.nearestPoint = null;  // 最近点
+            this.nearestDistance = Infinity;  // 最近点的距离
+          }
+        }
+
+        // 边
+        class edge {
+          constructor(a, b) {
+            this.a = a;
+            this.b = b;
+          }
+        }
+
+        // 三角形
+        class triangle {
+          constructor(a, b, c) {
+            this.a = a;
+            this.b = b;
+            this.c = c;
+            this.ab = null;
+            this.ac = null;
+            this.bc = null;
+            this.ex = null;  // 三角形外接圆的[圆心坐标x, 圆心坐标y, 半径平方]
+            this.flag = 0;  // 正数用来避免找一个坏三角时重复遍历， 负数用来避免找所有坏三角时重复遍历
+            this.flag2 = 0;  // -1用来避免重复绘制，-2用来避免找Voronoi点时重复遍历，正数用来避免分配点时重复遍历
+            this.points = new Set();  // 记录一个三角形内的所有点
+          }
+        }
+
+        let points = [];  // 保存所有点
+        let delaunayEdges = [];  // 保存所有边
+        let errorEdges = []; // Only for debug
+        let x = 0; // 当前鼠标位置x
+        let y = 0; // 当前鼠标位置y
+        let pressed = false;  // 鼠标是否按下
+        let first = false;  // 区分点击和拖拽
+        let isDelaunay = false;  // 是否显示Delaunay三角形
+        let isVoronoi = true;  // 是否显示Voronoi图
+        let isShowNearest = true;  // 是否显示最邻近点
+
+        let isDrag = false; // 是否正在拖拽
+        let dragPoint;  // 正在拖拽的点
+        let dragOffsetX;  // 正在拖拽的点和鼠标的位置偏移x
+        let dragOffsetY;  // 正在拖拽的点和鼠标的位置偏移y
+
+        let isError = false; // 是否出错
+
+        // 按钮事件：清空画布
+        clearAllBtn.onclick = function(){
+          points = [];
+          delaunayEdges = [];
+          errorEdges = [];
+          numPoints.innerHTML = 'points: 0'
+          isError = false;
+        }
+
+        // 按钮事件：生成100个随机点
+        create100Button.onclick = function(){ createPoints(100) };
+
+        // 按钮事件：生成1000个随机点
+        create1000Button.onclick = function(){ createPoints(1000) };
+
+        // 按钮事件：生成10000个随机点
+        create10000Button.onclick = function(){ createPoints(10000) };
+
+        // 按钮事件：测试性能
+        performanceTestButton.onclick = function() {
+          createPoints(100);
+          genDelaunayAndGetVoronoiPoints(points);
+          delaunayOnBtn.innerHTML = "Delaunay Off";
+          for(let i = 0; i < 9; i++){
+            createPoints(100);
+          }
+          for(let i = 0; i < 10; i++){
+            createPoints(1000);
+          }
+          for(let i = 0; i < 10; i++){
+            createPoints(10000);
+          }
+        };
+
+        // 按钮事件：生成或清空Delaunay三角形
+        delaunayOnBtn.onclick = function(){
+          if(isDelaunay == false){
+            isDelaunay = true;
+            delaunayOnBtn.innerHTML = "Delaunay Off";
+          }else{
+            isDelaunay = false;
+            delaunayOnBtn.innerHTML = "Delaunay On";
+          }
+        }
+
+        // 按钮事件：开启或关闭最邻近点显示
+        nearestOffButton.onclick = function(){
+          if(isShowNearest == false){
+            isShowNearest = true;
+            nearestOffButton.innerHTML = "Nearest Off";
+          }else{
+            isShowNearest = false;
+            nearestOffButton.innerHTML = "Nearest On";
+          }
+        }
+
+        // 更新当前鼠标位置
+        canvas.onmousemove = function(e){
+          x = e.offsetX
+          y = e.offsetY
+        }
+
+        // 检测鼠标按下
+        canvas.onmousedown = function(e){
+          pressed = true
+          first = true
+        }
+
+        // 检测鼠标抬起
+        canvas.onmouseup = function(e){
+          pressed = false
+          first = false
+          isDrag = false
+        }
+
+        // 判断鼠标是否在点附近
+        function isMouseNearPoint(x, y, point){
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, point.size * 2, degToRad(0), degToRad(360), false);
+          return ctx.isPointInPath(x, y);
+        }
+
+        // 判断鼠标是否在点内
+        function isMouseInPoint(x, y, point){
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, point.size, degToRad(0), degToRad(360), false);
+          return ctx.isPointInPath(x, y);
+        }
+
+        // 角度转换为弧度
+        function degToRad(degrees) {
+          return degrees * Math.PI / 180;
+        }
+
+        // 获得三角形外接圆圆心和半径
+        function getCenterAndRadius(triangle){
+          if(triangle.ex == null){
+            const x1 = triangle.a.x;
+            const x2 = triangle.b.x;
+            const x3 = triangle.c.x;
+            const y1 = triangle.a.y;
+            const y2 = triangle.b.y;
+            const y3 = triangle.c.y;
+            const cx = ((y2-y1)*(y3*y3-y1*y1+x3*x3-x1*x1)-(y3-y1)*(y2*y2-y1*y1+x2*x2-x1*x1))/(2.0*((x3-x1)*(y2-y1)-(x2-x1)*(y3-y1)));
+            const cy = ((x2-x1)*(x3*x3-x1*x1+y3*y3-y1*y1)-(x3-x1)*(x2*x2-x1*x1+y2*y2-y1*y1))/(2.0*((y3-y1)*(x2-x1)-(y2-y1)*(x3-x1)));
+            const r2 =(x1-cx)*(x1-cx)+(y1-cy)*(y1-cy);
+            triangle.ex = [cx, cy, r2];
+            return [cx, cy, r2];
+          }else{
+            return triangle.ex;
+          }
+        }
+
+        // 判断两个点的坐标是否相等
+        function isLocationSame(point1, point2){
+          return point1.x === point2.x && point1.y === point2.y;
+        }
+
+        // 判断点是否在圆内（高性能）
+        function isPointInCircle(pointX, pointY, circleCenterX, circleCenterY, circleR2){
+          return (pointX-circleCenterX)*(pointX-circleCenterX)+(pointY-circleCenterY)*(pointY-circleCenterY) <= circleR2 ? true : false;
+        }
+
+        // 判断点是否在三角形的外接圆内
+        function isPointInExCircle(point, triangle){
+          const res = getCenterAndRadius(triangle)
+          return isPointInCircle(point.x, point.y, res[0], res[1], res[2]);
+        }
+
+        // 判断点是否在三角形内（高性能）
+        function isPointInTriangle(point, triangle) {
+          const x0 = point.x;      const y0 = point.y;
+          const x1 = triangle.a.x; const y1 = triangle.a.y;
+          const x2 = triangle.b.x; const y2 = triangle.b.y;
+          const x3 = triangle.c.x; const y3 = triangle.c.y;
+          const divisor = (y2 - y3)*(x1 - x3) + (x3 - x2)*(y1 - y3);
+          const a = ((y2 - y3)*(x0 - x3) + (x3 - x2)*(y0 - y3)) / divisor;
+          const b = ((y3 - y1)*(x0 - x3) + (x1 - x3)*(y0 - y3)) / divisor;
+          const c = 1 - a - b;
+          return a >= 0 && a <= 1 && b >= 0 && b <= 1 && c >= 0 && c <= 1
+        }
+
+        // 计算欧氏距离的平方
+        function euclidean2(x1, y1, x2, y2){
+          return (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+        }
+
+        // 计算欧氏距离的平方（按照点来计算）
+        function euclidean2p(p1, p2){
+          const x1 = p1.x;
+          const x2 = p2.x;
+          const y1 = p1.y;
+          const y2 = p2.y;
+          return (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+        }
+
+        // 返回两个点形成的向量
+        function getVec(p1, p2){
+          return [p2.x - p1.x, p2.y - p1.y];
+        }
+
+        // 计算向量和(1, 0)的夹脚参考值（仅表示大小关系）
+        function vecCos2(vec1){
+          const x1 = vec1[0];
+          const y1 = vec1[1];
+          if(x1 >= 0 && y1 >= 0){
+            return (x1)*(x1)/(x1*x1+y1*y1);
+          }else if (x1 < 0 && y1 >= 0){
+            return -(x1)*(x1)/(x1*x1+y1*y1);
+          }else if (x1 < 0 && y1 < 0) {
+            return (x1)*(x1)/(x1*x1+y1*y1) - 2;
+          }else{
+            return -(x1)*(x1)/(x1*x1+y1*y1) - 2;
+          }
+        }
+
+        // 判断两个向量和 (1, 0) 之间的夹角哪个更大（节点以对象的形式表示）
+        function judgeAngle(p0, p1, p2){
+          return vecCos2(getVec(p0, p1)) - vecCos2(getVec(p0, p2));
+        }
+
+        // 生成随机点
+        function createPoints(num){
+          if (isError == false) {
+            for (let i = 0; i < num; i++) {
+              points.push(new point(Math.random() * width, Math.random() * height));
+            }
+            numPoints.innerHTML = 'points: ' + points.length;
+            genDelaunayAndGetVoronoiPoints(points);
+          }
+        }
+
+        // 生成基本三角形（通过屏幕四角）
+        function genBasicTriangle(width, height){
+          const cornerPoints = [];
+          const margin = Math.max(width, height, 100);  // 基本三角形需要稍大一些
+          cornerPoints.push(new point(0-margin, 0-margin));
+          cornerPoints.push(new point(width+margin, 0-margin));
+          cornerPoints.push(new point(0-margin, height+margin));
+          cornerPoints.push(new point(width+margin, height+margin));
+          for(let i = 0; i < cornerPoints.length; i++){
+            cornerPoints[i].color = 'rgb(0, 0, 255)'
+          }
+          let triHead = new triangle(cornerPoints[0], cornerPoints[1], cornerPoints[2]);  //三角链表的起点
+          triHead.bc = new triangle(cornerPoints[1], cornerPoints[2], cornerPoints[3]);
+          triHead.bc.ab = triHead;
+          return [triHead, cornerPoints];
+        }
+
+        // 使用改进的Bowyer-Watson算法生成Delaunay三角形
+        function genDelaunay(points){
+          let triHead;
+          if (points.length >= 1) {
+            let res = genBasicTriangle(width, height);  // 生成基本三角形
+            triHead = res[0];
+            let cornerPoints = res[1];
+
+            if(points.length <= optimizationOnThreshold){
+              threshold = Infinity;  // 点数量较小时，不开启优化
+            }else{
+              threshold = changeAlgorithmThreshold;  // 点数量较多时，开启优化
+            }
+
+            // 逐步添加所有点
+            for(let i = 0; i < points.length; i++){
+              const pot = points[i];  // 当前正在添加的点
+              let badTriangles = [];  // 存放所有坏三角
+
+              // 获取一个点到一个三角形圆心的距离平方
+              function getPointToTriangleE2(_pot, _tri){
+                if(_tri == null){
+                  return Infinity;
+                }else{
+                  let cr = getCenterAndRadius(_tri);
+                  return euclidean2(cr[0], cr[1], _pot.x, _pot.y);
+                }
+              }
+
+              // 以一个三角形为起点，找到某个点属于哪个三角形
+              function getPointFrom(j, tri, pot) {
+                let stack = new Array();  // 此处采用循环结构，递归绘制会导致堆栈溢出
+                stack.push(tri);
+                while (stack.length > 0) {
+                  tri = stack.pop();
+                  if (tri === null) {
+                    //如果是空的则不进行任何操作
+                  } else if (tri.flag2 != j + 1) {  // 仅遍历未遍历过的点
+                    tri.flag2 = j + 1;
+                    if (isPointInTriangle(pot, tri)) {
+                      return tri;
+                    } else {
+                      let _ab = getPointToTriangleE2(pot, tri.ab);
+                      let _ac = getPointToTriangleE2(pot, tri.ac);
+                      let _bc = getPointToTriangleE2(pot, tri.bc);
+
+                      if (_ab <= _ac && _ab <= _bc) {
+                        stack.push(tri.bc);
+                        stack.push(tri.ac);
+                        stack.push(tri.ab);
+                      } else if (_ac <= _ab && _ac <= _bc) {
+                        stack.push(tri.bc);
+                        stack.push(tri.ab);
+                        stack.push(tri.ac);
+                      } else {
+                        stack.push(tri.bc);
+                        stack.push(tri.ac);
+                        stack.push(tri.bc);
+                      }
+                    }
+                  }
+                }
+                return undefined;
+              }
+
+              // 从一个起点找到一个坏三角，复杂度 O(sqrt(n))
+              function getOneBad(tri, pot) {
+                let stack = new Array();  // 此处采用循环结构，递归绘制会导致堆栈溢出
+                stack.push(tri);
+                while (stack.length > 0) {
+                  tri = stack.pop();
+                  if (tri === null) {
+                    //如果是空的则不进行任何操作
+                  } else if (tri.flag != i + 1) {  // 仅遍历未遍历过的点
+                    tri.flag = i + 1;
+                    if (isPointInExCircle(pot, tri)) {
+                      return tri;
+                    } else {
+                      let _ab = getPointToTriangleE2(pot, tri.ab);
+                      let _ac = getPointToTriangleE2(pot, tri.ac);
+                      let _bc = getPointToTriangleE2(pot, tri.bc);
+
+                      if (_ab <= _ac && _ab <= _bc) {
+                        stack.push(tri.bc);
+                        stack.push(tri.ac);
+                        stack.push(tri.ab);
+                      } else if (_ac <= _ab && _ac <= _bc) {
+                        stack.push(tri.bc);
+                        stack.push(tri.ab);
+                        stack.push(tri.ac);
+                      } else {
+                        stack.push(tri.bc);
+                        stack.push(tri.ac);
+                        stack.push(tri.bc);
+                      }
+                    }
+                  }
+                }
+                return undefined;
+              }
+
+              // 从一个坏三角找所有坏三角，复杂度 O(1)
+              function getAllBad(_t){
+                //Only for Debug
+                if(typeof(_t) == "undefined"){
+                  console.error('No triangle should be undefined!');
+                  return false;
+                }
+                if(_t !== null &&_t.flag != -i - 1){  // 仅遍历未遍历过的点
+                  _t.flag = -i - 1;  // 将正在遍历的点标记为已遍历过
+                  if(isPointInExCircle(pot, _t)){  // 如果是坏三角则继续遍历
+                    badTriangles.push(_t);
+                    // For Debug
+                    if(!getAllBad(_t.ab) || !getAllBad(_t.ac) || !getAllBad(_t.bc)){
+                      console.error(_t);
+                    }
+                  }
+                }
+                return true;
+              }
+
+              // 判断使用哪种算法寻找第一个Bad三角形
+              let oneBad;
+              if(i < threshold){  // 点数量较小时使用游走法查找第一个坏三角
+                oneBad = getOneBad(triHead, pot);
+              }else if(i == threshold) {  // 点数量足够时将每个点分配到三角形内
+                // 将所有点分到已有三角形内
+                let tri = triHead;
+                for(let j in points){
+                  tri = getPointFrom(j, tri, points[j]);
+                  points[j].from = tri;
+                  tri.points.add(points[j]);
+                }
+                oneBad = pot.from;  // 一个点所属的三角形一定是坏三角形
+              }else{
+                oneBad = pot.from;  // 一个点所属的三角形一定是坏三角形
+              }
+
+              // Only For Debug
+              if(typeof(oneBad) == "undefined"){
+                console.error(i + ": No one bad triangle has been find!");
+                console.error(triHead);
+              }
+
+              getAllBad(oneBad);  // 找到所有坏三角并添加到坏三角列表里
+
+              // 拿出所有待连线的候选点，使用Set以便去重
+              let candidatePoints = new Set();
+              for(let j = 0; j < badTriangles.length; j++){
+                let _tri = badTriangles[j];
+                candidatePoints.add(_tri.a);
+                candidatePoints.add(_tri.b);
+                candidatePoints.add(_tri.c);
+              }
+
+              // 候选点重排序，按照逆时针旋转
+              candidatePoints = Array.from(candidatePoints); // 候选点转换为列表以便重排序
+              candidatePoints = candidatePoints.sort(function(p1, p2) {return judgeAngle(pot, p1, p2)});
+
+              let firstNewTriangle;
+              let previousNewTriangle;
+              // 按照候选点的顺序逐步构造新的三角形
+              let newTriangles = [];
+              for(let j = 0; j < candidatePoints.length; j++){
+                let _p1 = candidatePoints[j];
+                let _p2 = candidatePoints[(j+1) % candidatePoints.length];
+                let newTriangle = new triangle(pot, _p1, _p2);
+                newTriangles.push(newTriangle);
+
+                // 拿到新三角形对应的旧三角形和其邻居
+                let oldBadTriangle;
+                let newTriangleNeighbor;
+                for(let k = 0; k < badTriangles.length; k++){
+                  oldBadTriangle = badTriangles[k];
+                  if(oldBadTriangle.a == _p1 && oldBadTriangle.b == _p2 || oldBadTriangle.b == _p1 && oldBadTriangle.a == _p2){
+                    newTriangleNeighbor = oldBadTriangle.ab;
+                    break;  // 对应的旧三角形只有一个，找到之后就跳出循环
+                  }else if(oldBadTriangle.a == _p1 && oldBadTriangle.c == _p2 || oldBadTriangle.c == _p1 && oldBadTriangle.a == _p2){
+                    newTriangleNeighbor = oldBadTriangle.ac;
+                    break;  // 对应的旧三角形只有一个，找到之后就跳出循环
+                  }else if(oldBadTriangle.b == _p1 && oldBadTriangle.c == _p2 || oldBadTriangle.c == _p1 && oldBadTriangle.b == _p2){
+                    newTriangleNeighbor = oldBadTriangle.bc;
+                    break;  // 对应的旧三角形只有一个，找到之后就跳出循环
+                  }
+                }
+
+                // 将新的三角已有的好三角形连接起来
+                newTriangle.bc = newTriangleNeighbor;
+                if(newTriangleNeighbor == null){
+                  // 如果邻居是空的则什么也不做
+                }else{
+                  if(newTriangleNeighbor.ab === oldBadTriangle){
+                    newTriangleNeighbor.ab = newTriangle;
+                  }else if(newTriangleNeighbor.bc === oldBadTriangle){
+                    newTriangleNeighbor.bc = newTriangle;
+                  }else if(newTriangleNeighbor.ac === oldBadTriangle){
+                    newTriangleNeighbor.ac = newTriangle;
+                  }else{
+                    // Only For Debug
+                    console.error(i + ': New triangle can\'t be connected to good triangle!')
+                  }
+                }
+
+                // 将新三角与其邻居连接起来
+                if(j == 0){
+                  triHead = newTriangle;
+                  firstNewTriangle = newTriangle;
+                  previousNewTriangle = newTriangle;
+                }else if(j == candidatePoints.length - 1){
+                  newTriangle.ab = previousNewTriangle;
+                  previousNewTriangle.ac = newTriangle;
+                  newTriangle.ac = firstNewTriangle;
+                  firstNewTriangle.ab = newTriangle;
+                }else{
+                  newTriangle.ab = previousNewTriangle;
+                  previousNewTriangle.ac = newTriangle;
+                  previousNewTriangle = newTriangle;
+                }
+              }
+
+              // 找到坏三角形内所有点属于的三角形
+              function findPointsFrom(badTriangles, newTriangles){
+                for(let badTriangle of badTriangles){
+                  for(let point of badTriangle.points){
+                    for(let newTriangle of newTriangles){
+                      if(isPointInTriangle(point, newTriangle)){
+                        point.from = newTriangle;
+                        newTriangle.points.add(point);
+                      }
+                    }
+                  }
+                }
+              }
+
+              if(i >= threshold){  // 只有点数量大于阈值时才寻找点属于的三角形
+                findPointsFrom(badTriangles, newTriangles);  // 找到所有点属于的三角形，仅需要查找怀三角形和新三角形即可
+                triHead = newTriangles[0];
+              }
+            }
+
+            // 获得所有三角形的边形成的列表，排除基础点
+            function getTrianglesEdge(triangle, cornerPoints){
+              let queue = [];  // 此处采用循环结构，递归绘制会导致堆栈溢出
+              let edges = [];
+              queue.push(triangle);
+              while(queue.length > 0){
+                triangle = queue.shift();
+                if(triangle != null && triangle.flag2 !== -1){
+                  triangle.flag2 =-1;
+                  // 判断三角形是否有点属于基础点
+                  let isContinue = false;
+                  for (let j = 0; j < cornerPoints.length; j++){
+                    if (isLocationSame(triangle.a, cornerPoints[j]) || isLocationSame(triangle.b, cornerPoints[j]) || isLocationSame(triangle.c, cornerPoints[j])){
+                      isContinue = true;
+                      break;
+                    }
+                  }
+                  // 如果三角形属于基础点，则取消绘制
+                  if (isContinue === false){
+                    edges.push(new edge(triangle.a, triangle.b));
+                    edges.push(new edge(triangle.a, triangle.c));
+                    edges.push(new edge(triangle.b, triangle.c));
+                  }
+                  // 将三角形的邻居入列
+                  queue.push(triangle.ab);
+                  queue.push(triangle.ac);
+                  queue.push(triangle.bc);
+                }
+              }
+              return edges;
+            }
+
+            delaunayEdges = getTrianglesEdge(triHead, cornerPoints);  // 将所有三角形的边添加到待绘制列表
+          }
+
+          return triHead;
+        }
+
+        // 在Delaunay三角形基础上获取每个点的Voronoi图的坐标和最近点的坐标
+        function getVoronoiPoints(triangle, points){
+          // 清空所有点的Voronoi图的坐标
+          for(let point of points){
+            point.voronoiPoints = [];
+            point.nearestDistance = Infinity;
+          }
+
+          let queue = [];  // 此处采用循环结构，递归绘制会导致堆栈溢出
+          queue.push(triangle);
+          while(queue.length > 0){
+            triangle = queue.shift();
+            if(triangle != null && triangle.flag2 !== -2){
+              triangle.flag2 = -2;
+              let res = getCenterAndRadius(triangle);
+              triangle.a.voronoiPoints.push([res[0], res[1]]);
+              triangle.b.voronoiPoints.push([res[0], res[1]]);
+              triangle.c.voronoiPoints.push([res[0], res[1]]);
+
+              function changeNearest(p1, p2){
+                const distance = euclidean2p(p1, p2);
+                if(distance <= p1.nearestDistance){
+                  p1.nearestDistance = distance;
+                  p1.nearestPoint = p2;
+                }
+                if(distance <= p2.nearestDistance){
+                  p2.nearestDistance = distance;
+                  p2.nearestPoint = p1;
+                }
+              }
+
+              changeNearest(triangle.a, triangle.b);
+              changeNearest(triangle.a, triangle.c);
+              changeNearest(triangle.b, triangle.c);
+
+              // 将三角形的邻居入列
+              queue.push(triangle.ab);
+              queue.push(triangle.ac);
+              queue.push(triangle.bc);
+            }
+          }
+        }
+
+        function genDelaunayAndGetVoronoiPoints(points){
+          let t1 = new Date().getTime();
+          getVoronoiPoints(genDelaunay(points), points);
+          let t2 = new Date().getTime();
+          for(let _point of points){
+            _point.voronoiPoints = _point.voronoiPoints.sort(function(p1, p2) {return vecCos2([p1[0]-_point.x, p1[1]-_point.y]) - vecCos2([p2[0]-_point.x, p2[1]-_point.y])});
+          }
+          let t3 = new Date().getTime();
+          let s = 'points: ' + points.length + ' time: ' + (t3-t1) + 'ms';
+          numPoints.innerHTML = s;
+        }
+
+        // 动画周期
+        function draw() {
+          let i;
+          width = canvas.width = window.innerWidth;
+          height = canvas.height = window.innerHeight - toolBar.clientHeight;
+
+          ctx.fillStyle = 'rgb(256, 256, 256)';
+          ctx.fillRect(0, 0, width, height);
+          
+          ctx.fillStyle = 'rgb(256, 0, 0)';
+          ctx.beginPath();
+          ctx.arc(x, y, 5, degToRad(0), degToRad(360), false);
+          ctx.fill();
+
+          // 鼠标按下，判断是否需要拖拽或增添点
+          if(pressed){
+            if(isDrag){
+              // 处于正在拖拽状态，移动拖拽点
+              dragPoint.x = x + dragOffsetX;
+              dragPoint.y = y + dragOffsetY;
+              genDelaunayAndGetVoronoiPoints(points);
+            }
+            if (first) {  // 仅单击时进行拖拽或增添点操作
+              first = false;
+              const pointsNear = [];
+              for (i in points) {
+                if (isMouseNearPoint(x, y, points[i])) {
+                  pointsNear.push(points[i]);
+                }
+              }
+              const pointsIn = [];
+
+              if (pointsNear.length > 0) {  // 如果点击时附近有点则不添加新点
+                for (i in pointsNear) {
+                  if (isMouseInPoint(x, y, pointsNear[i])) {
+                    pointsIn.push(pointsNear[i]);
+                  }
+                }
+                if (pointsIn.length > 0) {  // 发现拖拽点，开启拖拽
+                  dragPoint = pointsIn[pointsIn.length - 1];
+                  isDrag = true;
+                  dragOffsetX = dragPoint.x - x;
+                  dragOffsetY = dragPoint.y - y;
+                }
+              } else {  // 附近没有点时添加新点
+                points.push(new point(x, y));
+                numPoints.innerHTML = 'points: ' + points.length;
+                genDelaunayAndGetVoronoiPoints(points);
+                isDrag = true;
+                dragPoint = points[points.length - 1];
+                dragOffsetX = 0;
+                dragOffsetY = 0;
+              }
+            }
+          }
+
+          // 绘制所有Voronoi图
+          for(let i in points){
+            let pot = points[i];
+            ctx.beginPath();
+            if(pot.voronoiPoints.length > 0){
+              ctx.moveTo(pot.voronoiPoints[0][0], pot.voronoiPoints[0][1]);
+              for(let i = 1; i < pot.voronoiPoints.length; i++){
+                ctx.lineTo(pot.voronoiPoints[i][0], pot.voronoiPoints[i][1]);
+              }
+              ctx.fillStyle = pot.color3;
+              ctx.fill();
+            }else{
+              console.error(i);
+            }
+          }
+
+          // 绘制边
+          function drawEdges(canvasCtx, edges){
+            let edgeDrawing;
+            for (let i in edges) {
+              // Only for debug
+              if(isError){
+                break;
+              }
+              edgeDrawing = edges[i];
+              canvasCtx.beginPath();
+              canvasCtx.moveTo(edgeDrawing.a.x, edgeDrawing.a.y);
+              canvasCtx.lineTo(edgeDrawing.b.x, edgeDrawing.b.y);
+              canvasCtx.lineWidth = 0.5;  // 线条宽度默认为0.5
+              canvasCtx.strokeStyle = 'rgb(0, 0, 0)';  // 线条颜色默认为黑色
+              canvasCtx.stroke();
+            }
+          }
+
+          // 绘制所有Delaunay三角形的边
+          if(isDelaunay){
+            drawEdges(ctx, delaunayEdges);
+          }
+
+          // 绘制一个边（根据两个点）
+          function drawEdge(p1, p2, canvasCtx){
+            canvasCtx.beginPath();
+            canvasCtx.moveTo(p1.x, p1.y);
+            canvasCtx.lineTo(p2.x, p2.y);
+            canvasCtx.lineWidth = 1;  // 线条宽度默认为1
+            canvasCtx.strokeStyle = 'rgb(255, 0, 0)';  // 线条颜色默认为红色
+            canvasCtx.stroke();
+          }
+
+          // 绘制最近点连线
+          if(isShowNearest){
+            for(let pot of points){
+              drawEdge(pot, pot.nearestPoint, ctx);
+            }
+          }
+
+          // 绘制所有点
+          for(i in points){
+            ctx.fillStyle = points[i].color;
+            ctx.beginPath();
+            ctx.arc(points[i].x, points[i].y, points[i].size, degToRad(0), degToRad(360), false);
+            ctx.fill();
+          }
+          window.requestAnimationFrame(draw);  // 调取下一帧动画
+        }
+        draw();
+    </script>
+  </body>
+</html>
