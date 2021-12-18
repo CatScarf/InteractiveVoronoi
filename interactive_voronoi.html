@@ -150,39 +150,6 @@
 
         let isError = false; // 是否出错
 
-        // 禁用缩放（For IOS Safari）
-        function noScale(element){
-          element.addEventListener('touchstart', function(event){
-            if(event.touches.length>1){
-              event.preventDefault();
-            }
-          }, false);
-          let lastTouchEnd = 0;
-          element.addEventListener('touchend', function(event){
-            const now = (new Date()).getTime();
-            if(now-lastTouchEnd<=300){
-              event.preventDefault();
-            }
-            lastTouchEnd=now;
-          }, false);
-          element.addEventListener('gesturestart', function(event){
-            event.preventDefault();
-          });
-        }
-
-        window.onload=function(){
-          noScale(document);
-          for(let i of document.getElementsByTagName("ul")){
-            noScale(i);
-          }
-          for(let i of document.getElementsByTagName("li")){
-            noScale(i);
-          }
-          for(let i of document.getElementsByTagName("button")){
-            noScale(i);
-          }
-        }
-
         // 按钮事件：清空画布
         clearAllBtn.onclick = function(){
           points = [];
