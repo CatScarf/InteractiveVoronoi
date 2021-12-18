@@ -171,9 +171,13 @@
         }
 
         window.onload=function(){
-          noScale(document.getElementsByTagName("ul"));
-          noScale(document.getElementsByTagName("li"));
           noScale(document);
+          for(let i of document.getElementsByTagName("ul")){
+            noScale(i);
+          }
+          for(let i of document.getElementsByTagName("li")){
+            noScale(i);
+          }
         }
 
         // 按钮事件：清空画布
