@@ -147,6 +147,18 @@
 
         let isError = false; // 是否出错
 
+        // 禁用缩放
+        window.onload = function() {
+          document.addEventListener('touchstart', function(event) {
+            if (event.touches.length > 1) {
+              event.preventDefault()
+            }
+          })
+          document.addEventListener('gesturestart', function(event) {
+            event.preventDefault()
+          })
+        }
+
         // 按钮事件：清空画布
         clearAllBtn.onclick = function(){
           points = [];
