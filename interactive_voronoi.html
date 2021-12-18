@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1.0, width=device-width, maximum-scale=1.0, user-scalable=0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
     <title>Interactive Voronoi</title>
     <style>
         body {
@@ -151,23 +151,28 @@
         let isError = false; // 是否出错
 
         // 禁用缩放（For IOS Safari）
-        window.onload=function(){
-          document.addEventListener('touchstart', function(event){
+        function noScale(element){
+          element.addEventListener('touchstart', function(event){
             if(event.touches.length>1){
               event.preventDefault();
             }
           }, false);
           let lastTouchEnd = 0;
-          document.addEventListener('touchend', function(event){
+          element.addEventListener('touchend', function(event){
             const now = (new Date()).getTime();
             if(now-lastTouchEnd<=300){
               event.preventDefault();
             }
             lastTouchEnd=now;
           }, false);
-          document.addEventListener('gesturestart', function(event){
+          element.addEventListener('gesturestart', function(event){
             event.preventDefault();
           });
+        }
+
+        window.onload=function(){
+          noScale(document);
+          noScale(create100Button);
         }
 
         // 按钮事件：清空画布
