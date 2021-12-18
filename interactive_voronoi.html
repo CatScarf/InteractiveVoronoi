@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0, user-scalable=0">
-    <title>Voronoi 4.0</title>
+    <title>Interactive Voronoi</title>
     <style>
         body {
           margin: 0;
@@ -33,6 +33,9 @@
   </head>
   <body>
     <ul class="toolbar">
+      <li class="tip">
+        <div class="version">V4.0.1</div>
+      </li>
       <li class = "btn">
         <button class="create100Button">+100</button>
       </li>
@@ -153,7 +156,7 @@
             if(event.touches.length>1){
               event.preventDefault();
             }
-          });
+          }, false);
           let lastTouchEnd = 0;
           document.addEventListener('touchend', function(event){
             const now = (new Date()).getTime();
