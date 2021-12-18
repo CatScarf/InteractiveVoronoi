@@ -34,7 +34,7 @@
   <body>
     <ul class="toolbar">
       <li class="tip">
-        <div class="version">V4.0.1</div>
+        <div class="version">V4.0.2</div>
       </li>
       <li class = "btn">
         <button class="create100Button">+100</button>
@@ -171,8 +171,9 @@
         }
 
         window.onload=function(){
+          noScale(document.getElementsByTagName("ul"));
+          noScale(document.getElementsByTagName("li"));
           noScale(document);
-          noScale(create100Button);
         }
 
         // 按钮事件：清空画布
