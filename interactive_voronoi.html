@@ -42,8 +42,8 @@
       <li class = "btn" style="display: none">
         <button class="create10000Button">+10000</button>
       </li>
-      <li class = "btn">
-        <button class="performanceTestButton" style="display: none">Performance Test</button>
+      <li class = "btn" style="display: none">
+        <button class="performanceTestButton">Performance Test</button>
       </li>
       <li class = "btn">
         <button class="delaunayOnButton">Delaunay On</button>
@@ -147,16 +147,24 @@
 
         let isError = false; // 是否出错
 
-        // 禁用缩放
-        window.onload = function() {
-          document.addEventListener('touchstart', function(event) {
-            if (event.touches.length > 1) {
-              event.preventDefault()
+        // 禁用缩放（For IOS Safari）
+        window.onload=function(){
+          document.addEventListener('touchstart', function(event){
+            if(event.touches.length>1){
+              event.preventDefault();
             }
-          })
-          document.addEventListener('gesturestart', function(event) {
-            event.preventDefault()
-          })
+          });
+          let lastTouchEnd = 0;
+          document.addEventListener('touchend', function(event){
+            const now = (new Date()).getTime();
+            if(now-lastTouchEnd<=300){
+              event.preventDefault();
+            }
+            lastTouchEnd=now;
+          }, false);
+          document.addEventListener('gesturestart', function(event){
+            event.preventDefault();
+          });
         }
 
         // 按钮事件：清空画布
